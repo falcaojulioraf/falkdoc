@@ -5391,6 +5391,10 @@ def fh4_extension_widget(parent=None, map_factory=None):
 
     def met_start(fn, p, on_done, label, on_fail=None):
         if st["busy"]:
+            # Sans message, un clic sur « Estimation »/« Télécharger » pendant un calcul principal
+            # ne produit visiblement rien (contraire à la règle du dépôt : un blocage doit afficher
+            # sa raison précise) — même garde partagée que start(), qui prévient via flash().
+            m_info.setText("Un traitement est déjà en cours (onglet Calcul) : attendre sa fin avant de lancer une opération météo.")
             return
         network_begin(label)
         w = Fh4Task(fn, p)
@@ -5992,21 +5996,45 @@ if "FH_MODULES_CHARGES" not in globals():
     import builtins as _b
     from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout
     _old = getattr(_b, "_FALKHYDRO_SB4_SEUL", None)
+    _old_running = False
     if _old is not None:
         try:
-            _old.close()
+            # QDialog.close() ne DÉTRUIT pas la fenêtre (pas de WA_DeleteOnClose ici) : elle se
+            # cache seulement. Un Fh4Task encore en cours (sous-processus TauDEM, téléchargement
+            # météo, exécution SWAT+ — potentiellement très long) continuerait de tourner en
+            # arrière-plan, invisible, avec le risque réel de deux calculs écrivant en même temps
+            # dans Etages/04_swat/<bassin>/. outer._fh4["st"]["worker"] (posé en fin de
+            # fh4_extension_widget) permet de le vérifier avant de fermer.
+            _prev_worker = (getattr(_old, "_fh4", None) or {}).get("st", {}).get("worker")
+            _old_running = bool(_prev_worker is not None and _prev_worker.isRunning())
         except Exception:
-            pass
-    try:
-        _par = iface.mainWindow()
-    except Exception:
-        _par = None
-    _dlg = QDialog(_par)
-    _dlg.setWindowTitle("FALKHYDRO+ — Étage 4 : Sous-bassins (module autonome)")
-    QVBoxLayout(_dlg).addWidget(fh4_extension_widget(_dlg))
-    fh4_fit_window(_dlg)
-    _b._FALKHYDRO_SB4_SEUL = _dlg
-    _dlg.show()
-    _dlg.raise_()
-    _dlg.activateWindow()
-    print("✅ Module Sous-bassins (étage 4) lancé seul.")
+            _old_running = False
+        if _old_running:
+            print("⚠ Un calcul Étage 4 est encore en cours dans la fenêtre déjà ouverte : elle est "
+                  "ramenée au premier plan, aucune nouvelle instance n'est lancée (attendre la fin "
+                  "du calcul, ou l'annuler/la fermer explicitement, avant de relancer ▶).")
+            try:
+                _old.show()
+                _old.raise_()
+                _old.activateWindow()
+            except Exception:
+                pass
+        else:
+            try:
+                _old.close()
+            except Exception:
+                pass
+    if not _old_running:
+        try:
+            _par = iface.mainWindow()
+        except Exception:
+            _par = None
+        _dlg = QDialog(_par)
+        _dlg.setWindowTitle("FALKHYDRO+ — Étage 4 : Sous-bassins (module autonome)")
+        QVBoxLayout(_dlg).addWidget(fh4_extension_widget(_dlg))
+        fh4_fit_window(_dlg)
+        _b._FALKHYDRO_SB4_SEUL = _dlg
+        _dlg.show()
+        _dlg.raise_()
+        _dlg.activateWindow()
+        print("✅ Module Sous-bassins (étage 4) lancé seul.")
