@@ -3698,6 +3698,17 @@ class WeatherManager:
             raise Fh4Error("{} : aucun fichier existant fourni.".format(src))
         dst = os.path.join(self.cache, fh4_norm_token(src))
         os.makedirs(dst, exist_ok=True)
+        # Deux fichiers source de même nom (dossiers d'origine différents, cas réaliste pour des
+        # exports annuels) écraseraient silencieusement l'un l'autre sur `q` : refusé explicitement
+        # plutôt que de perdre une série en silence (règle fail-closed).
+        par_nom = {}
+        for p in valid:
+            nom = os.path.basename(p)
+            autre = par_nom.get(nom)
+            if autre is not None and os.path.abspath(autre) != os.path.abspath(p):
+                raise Fh4Error("Deux fichiers {} portent le même nom « {} » ({} et {}) : "
+                                "renomme-les avant import, sinon l'un écraserait l'autre sans que tu le voies.".format(src, nom, autre, p))
+            par_nom[nom] = p
         copied = []
         for p in valid:
             q = os.path.join(dst, os.path.basename(p))
